@@ -332,6 +332,7 @@ input[type=checkbox]{width:22px;height:22px;min-height:0;padding:0;accent-color:
 .pin-sheet{display:grid;gap:14px}
 .pin-sheet hr{border:0;border-top:1px solid var(--line);margin:4px 0}
 .sync .whoami{font-weight:600}
+.sync .syncgrp{display:inline-block;white-space:nowrap;margin-left:4px}
 </style>
 </head>
 <body>
@@ -729,7 +730,7 @@ function renderNav(){
     return '<button type="button" data-act="tab" data-tab="'+t[0]+'"'+(ui.tab===t[0]?' aria-current="page"':'')+'>'+t[1]+(t[2]?'<span class="badge" title="'+esc(t[3])+'">'+t[2]+'</span>':'')+(t[0]==='books'&&booksNew?'<span class="newtag" title="New expenses">New</span>':'')+'</button>';
   }).join('');
 }
-function renderSync(){renderSync0();var el=$('#sync');if(ui.loaded&&!ui.locked&&ui.owner){el.insertAdjacentHTML('beforeend',' · <span class="whoami">'+esc(ownerName(ui.owner))+'</span> <button type="button" class="linkbtn'+(bkDue()?' warn':'')+'" data-act="backup">'+(bkDue()?'Backup due':'Backup')+'</button> <button type="button" class="linkbtn" data-act="pins">PIN</button> <button type="button" class="linkbtn" data-act="lock">Lock</button>')}}
+function renderSync(){renderSync0();var el=$('#sync');if(ui.loaded&&!ui.locked&&ui.owner){el.insertAdjacentHTML('beforeend',' <span class="syncgrp"><span class="whoami">'+esc(ownerName(ui.owner))+'</span> <button type="button" class="linkbtn'+(bkDue()?' warn':'')+'" data-act="backup">'+(bkDue()?'Backup due':'Backup')+'</button> <button type="button" class="linkbtn" data-act="pins">PIN</button> <button type="button" class="linkbtn" data-act="lock">Lock</button></span>')}}
 function renderSync0(){
   var el=$('#sync');
   if(ui.mode==='synced')el.innerHTML='Saved and shared <button type="button" class="linkbtn" data-act="signout">Sign out</button>';
@@ -1964,7 +1965,7 @@ window.__kbConfirmFrame=function(doc){
 };
 
 /* ---------- always run the newest published version ---------- */
-var BUILD_ID='6ad97195';
+var BUILD_ID='6ad973e4';
 var updAsked=false;
 function updBanner(id){
   if(document.getElementById('kbupd'))return;
