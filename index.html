@@ -546,10 +546,14 @@ function clientOf(id){return state.clients.find(function(c){return c.id===id})}
 function productOf(id){return state.products.find(function(p){return p.id===id})}
 function itemOf(id){return state.inventory.find(function(i){return i.id===id})}
 function batchN(p){return p&&p.basis==='batch'?Math.max(1,num(p.batchSize)||1):1}
+function buysOf(it){return (it&&it.buys||[]).filter(function(b){return num(b.qty)>0&&num(b.paid)>=0})}
+function avgCost(it){var b=buysOf(it).slice(-5);if(!b.length)return null;var q=0,m=0;b.forEach(function(x){q+=num(x.qty);m+=num(x.paid)});return q>0?round2(m/q*100)/100:null}
+function lastCost(it){var b=buysOf(it);if(!b.length)return null;var x=b[b.length-1];return num(x.qty)>0?num(x.paid)/num(x.qty):null}
+function priceUp(it){var a=avgCost(it),l=lastCost(it);return a!=null&&l!=null&&a>0&&l>a*1.1}
 function recipeCost(p){
-  var c=0,missing=false,n=batchN(p);
-  ((p&&p.recipe)||[]).forEach(function(r){var it=itemOf(r.itemId);if(!it)return;if(!(num(it.cost)>0))missing=true;c+=num(r.qty)*num(it.cost)});
-  return {cost:round2(c/n),batch:round2(c),n:n,isBatch:!!(p&&p.basis==='batch'&&n>1),missing:missing,has:!!(p&&p.recipe&&p.recipe.length)};
+  var c=0,missing=false,n=batchN(p),up=false;
+  ((p&&p.recipe)||[]).forEach(function(r){var it=itemOf(r.itemId);if(!it)return;if(!(num(it.cost)>0))missing=true;if(priceUp(it))up=true;c+=num(r.qty)*num(it.cost)});
+  return {up:up,cost:round2(c/n),batch:round2(c),n:n,isBatch:!!(p&&p.basis==='batch'&&n>1),missing:missing,has:!!(p&&p.recipe&&p.recipe.length)};
 }
 function orderNeeds(o){
   var m={};
@@ -560,6 +564,7 @@ function orderNeeds(o){
   return m;
 }
 function orderCost(o){
+  if(o&&o.costSnap!=null)return num(o.costSnap);
   var c=0,any=false;
   (o.items||[]).forEach(function(l){var p=l.productId?productOf(l.productId):null;var r=recipeCost(p);if(r.has){any=true;c+=num(l.qty)*r.cost}});
   return any?round2(c):null;
@@ -940,6 +945,7 @@ function menuSub(p){
   var bits=[],rc=recipeCost(p);
   if(rc.has&&!rc.missing&&num(p.price)>0){var pr=num(p.price)-rc.cost;bits.push('Cost '+money(rc.cost)+(rc.isBatch?' each':'')+' · '+Math.round(pr/num(p.price)*100)+'% margin'+(rc.isBatch?' · a batch of '+rc.n+' costs '+money(rc.batch):''))}
   else if(rc.has)bits.push('Add costs to ingredients to see margin');
+  if(rc.has&&rc.up)bits.push('Ingredient prices are up');
   if(p.contains)bits.push('Contains '+esc(p.contains));
   return bits.length?'<span class="r-sub">'+bits.join(' · ')+'</span>':'';
 }
@@ -1003,7 +1009,7 @@ function stockRow(i){
   var par=num(i.par),qty=num(i.qty),isLow=par>0&&qty<par;
   var pct=par>0?Math.max(0,Math.min(100,qty/par*100)):100;
   return '<li class="stock"><button type="button" class="stock-main" data-act="edit-item" data-id="'+i.id+'">'+
-    '<span class="s-name">'+esc(i.name)+(isLow?'<span class="chip low">Reorder</span>':'')+(i.example?'<span class="eg">Example</span>':'')+'</span>'+
+    '<span class="s-name">'+esc(i.name)+(isLow?'<span class="chip low">Reorder</span>':'')+(priceUp(i)?'<span class="chip low">Price up</span>':'')+(i.example?'<span class="eg">Example</span>':'')+'</span>'+
     '<span class="r-sub">'+(par>0?'Par '+fmtQty(par)+' '+esc(i.unit||''):'No par level')+'</span>'+
     (par>0?'<div class="bar'+(isLow?' low':'')+'" role="img" aria-label="'+fmtQty(qty)+' of '+fmtQty(par)+' '+esc(i.unit||'')+'"><i style="width:'+pct+'%"></i></div>':'')+
     '</button><div class="stepper"><button type="button" data-act="dec" data-id="'+i.id+'" aria-label="Use some '+esc(i.name)+'">−</button>'+
@@ -1321,7 +1327,8 @@ function saveOrder(id){
   var fee=$('#f-fulfil').value==='delivery'?Math.max(0,round2(num($('#f-fee').value))):0;
   var disc=discAmt(sub,dt,dv),total=round2(sub-disc+fee);
   var paid=$('#f-paid').checked;
-  var rec=Object.assign({},prev?strip(prev):{},{clientId:cid||'',clientName:cname,due:due,items:items,notes:$('#f-notes').value.trim(),allergies:$('#f-allergy').value.trim(),baker:$('#f-baker').value,takenBy:$('#f-taken').value,source:$('#f-source').value,season:seasonVal,subtotal:sub,deliveryFee:fee,discType:dt,discVal:dt?dv:0,discount:disc,fulfil:$('#f-fulfil').value,dueTime:$('#f-fulfil').value?($('#f-time').value||'12:00'):'',addr:$('#f-fulfil').value==='delivery'?$('#f-addr').value.trim():'',total:total,
+  var snapNow=(!prev||JSON.stringify(prev.items)!==JSON.stringify(items))?orderCost({items:items}):(prev.costSnap!=null?prev.costSnap:null);
+  var rec=Object.assign({},prev?strip(prev):{},{costSnap:snapNow,clientId:cid||'',clientName:cname,due:due,items:items,notes:$('#f-notes').value.trim(),allergies:$('#f-allergy').value.trim(),baker:$('#f-baker').value,takenBy:$('#f-taken').value,source:$('#f-source').value,season:seasonVal,subtotal:sub,deliveryFee:fee,discType:dt,discVal:dt?dv:0,discount:disc,fulfil:$('#f-fulfil').value,dueTime:$('#f-fulfil').value?($('#f-time').value||'12:00'):'',addr:$('#f-fulfil').value==='delivery'?$('#f-addr').value.trim():'',total:total,
     status:prev?prev.status||'new':'new',paidOn:paid?((prev&&prev.paidOn)||today()):null,createdAt:prev?prev.createdAt||today():today()});
   var wasPaid=!!(prev&&prev.paidOn);
   guard(put('orders',id||rid(),rec));
@@ -1383,13 +1390,34 @@ function openItemForm(id){
     '<div class="field"><label for="i-cat">Group</label><select id="i-cat">'+STOCK_CATS.map(function(c){return '<option'+((it?it.category||'Other':'Ingredients')===c?' selected':'')+'>'+c+'</option>'}).join('')+'</select></div>'+
     '<div class="two"><div class="field"><label for="i-qty">On hand</label><input id="i-qty" type="number" inputmode="decimal" min="0" step="any" value="'+(it?num(it.qty):'')+'"></div>'+
     '<div class="field"><label for="i-unit">Unit</label><input id="i-unit" type="text" list="units" value="'+esc(it?it.unit||'':'')+'" placeholder="kg" autocomplete="off"><datalist id="units"><option>kg</option><option>g</option><option>L</option><option>dozen</option><option>pcs</option><option>package</option><option>sheets</option></datalist></div></div>'+
-    '<div class="field"><label for="i-cost">Cost per unit (CAD)</label><input id="i-cost" type="number" inputmode="decimal" min="0" step="any" value="'+(it&&num(it.cost)>0?num(it.cost):'')+'" placeholder="e.g. 8.50 per kg"><p class="hint">Used to work out what each menu item costs to make.</p></div>'+
+    '<div class="field"><label for="i-cost">Cost per unit (CAD)</label><input id="i-cost" type="number" inputmode="decimal" min="0" step="any" value="'+(it&&num(it.cost)>0?num(it.cost):'')+'" placeholder="e.g. 8.50 per kg"><p class="hint">Used to work out what each menu item costs to make. Recording purchases below keeps this up to date automatically.</p></div>'+
+    (it?buyBlock(it):'<p class="hint">After you save, you can record purchases here to keep the cost accurate.</p>')+
     '<div class="two"><div class="field"><label for="i-par">Par level</label><input id="i-par" type="number" inputmode="decimal" min="0" step="any" value="'+(it&&num(it.par)>0?num(it.par):'')+'"><p class="hint">Reorder when stock drops below this.</p></div>'+
     '<div class="field"><label for="i-step">Plus and minus step</label><input id="i-step" type="number" inputmode="decimal" min="0" step="any" value="'+(it&&num(it.step)>0?num(it.step):'')+'" placeholder="Automatic"><p class="hint">Leave empty to pick one from the unit.</p></div></div>'+
     '<p class="err" id="sheet-err" role="alert" hidden></p>'+
     '<div class="actions"><button type="button" class="btn" data-primary data-act="save-item" data-id="'+(id||'')+'">Save</button>'+CLOSE_BTN+
     (it?'<button type="button" class="btn danger" data-act="delete-item" data-id="'+id+'" data-danger>Delete</button>':'')+'</div>';
   openSheet(it?'Edit stock item':'New stock item',body);
+}
+function buyBlock(it){
+  var a=avgCost(it),l=lastCost(it),b=buysOf(it);
+  var info=b.length?'<p class="costline" id="i-buyinfo">Average of last '+Math.min(5,b.length)+' purchase'+(Math.min(5,b.length)===1?'':'s')+': '+money(a)+' per '+esc(it.unit||'unit')+' · Latest: '+money(l)+(priceUp(it)?' <strong>(price is up)</strong>':'')+'</p>':'<p class="hint">No purchases recorded yet.</p>';
+  return '<div class="field"><span class="lbl">Record a purchase</span>'+info+
+    '<div class="two"><div class="field"><label for="i-buyqty">Quantity bought'+(it.unit?' ('+esc(it.unit)+')':'')+'</label><input id="i-buyqty" type="number" inputmode="decimal" min="0" step="any"></div>'+
+    '<div class="field"><label for="i-buypaid">Total paid (CAD)</label><input id="i-buypaid" type="number" inputmode="decimal" min="0" step="any"></div></div>'+
+    '<button type="button" class="btn ghost" data-act="buy-item" data-id="'+it.id+'">Add purchase</button><p class="hint">Adds the quantity to what is on hand and updates the cost per unit.</p></div>';
+}
+function addBuy(id){
+  var it=state.inventory.find(function(x){return x.id===id});if(!it)return;
+  var q=num($('#i-buyqty').value),paid=num($('#i-buypaid').value);
+  if(!(q>0))return sheetErr('Enter how much you bought.');
+  if(!(paid>0))return sheetErr('Enter the total you paid.');
+  var buys=buysOf(it).concat([{date:today(),qty:q,paid:round2(paid)}]).slice(-20);
+  var fake={buys:buys,unit:it.unit};var avg=avgCost(fake);
+  var qty=round3(num(it.qty)+q);
+  guard(patch('inventory',id,{buys:buys,cost:avg,qty:qty}));
+  it.buys=buys;it.cost=avg;it.qty=qty;
+  openItemForm(id);toast('Purchase added. Cost is now '+money(avg)+' per '+(it.unit||'unit'));
 }
 function saveItem(id){
   var name=$('#i-name').value.trim();if(!name)return sheetErr('Enter a name.');
@@ -1611,6 +1639,7 @@ document.addEventListener('click',function(e){
     case 'delete-product':guard(drop('products',id));closeSheet();toast('Menu item deleted');break;
     case 'add-item':openItemForm();break;
     case 'edit-item':openItemForm(id);break;
+    case 'buy-item':addBuy(id);break;
     case 'save-item':saveItem(id||null);break;
     case 'delete-item':guard(drop('inventory',id));closeSheet();toast('Stock item deleted');break;
     case 'inc':adjustQty(id,1);break;
@@ -1968,7 +1997,7 @@ window.__kbConfirmFrame=function(doc){
 };
 
 /* ---------- always run the newest published version ---------- */
-var BUILD_ID='6ad974f9';
+var BUILD_ID='6ad983ae';
 var updAsked=false;
 function updBanner(id){
   if(document.getElementById('kbupd'))return;
